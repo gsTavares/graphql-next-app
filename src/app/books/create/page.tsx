@@ -1,11 +1,12 @@
 "use client";
 
-import { gql } from "@apollo/client";
-import createApolloClient from "@/app/utils/apollo-client-instance";
-import { FormEvent, useEffect, useState } from "react";
+import { gql, useMutation, useQuery } from "@apollo/client";
 import { useRouter } from "next/navigation";
 
+import FormValidationMessage from "@/app/utils/components/FormValidationMessage";
 import Link from "next/link";
+import { useForm } from "react-hook-form";
+import { Book } from "../page";
 
 type Author = {
     id: string,
@@ -21,106 +22,77 @@ type CreateBookRequest = {
 
 export default function CreateBook() {
 
-    const [authors, setAuthors] = useState<Author[]>([]);
-    const [name, setName] = useState<string>('');
-    const [pages, setPages] = useState<number>(1);
-    const [authorId, setAuthorId] = useState<string>('');
+    const { data, loading, error } = useQuery<{ allAuthors: Author[] }>(
+        gql`
+            query AllAuthorsQuery {
+                allAuthors {
+                    id
+                    firstName
+                    lastName
+                }
+            }
+        `
+    );
 
-    const [validation, setValidation] = useState<string>('');
+    const [createBookMutation] = useMutation<Book, { createBookRequest: CreateBookRequest }>(gql`
+        mutation CreateBookMutation($createBookRequest: CreateBookRequest) {
+            createBook(createBookRequest: $createBookRequest) {
+                id
+            }
+        }
+    `);
+
+    const { register, handleSubmit, formState: { errors } } = useForm<CreateBookRequest>();
 
     const router = useRouter();
 
-    useEffect(() => {
-        const fetchAuthors = async () => {
-            const client = createApolloClient();
-            const { data } = await client.query({
-                query: gql`
-                    query AllAuthorsQuery {
-                        allAuthors {
-                            id
-                            firstName
-                            lastName
-                        }
-                    }
-                `
-            });
+    if (loading) {
+        return <p>Loading...</p>
+    }
 
-            setAuthors(data.allAuthors);
-        }
+    if (error) {
+        return <p>Error while fetching necessary data for book creation!</p>
+    }
 
-        fetchAuthors();
-    }, [])
-
-    const createBook = (event: FormEvent) => {
-        event.preventDefault();
-        if (!name || name === '') {
-            setValidation('The book name is required.');
-            return;
-        }
-        if (!pages || pages <= 0) {
-            setValidation('Books must have at least one page.');
-            return;
-        }
-        if (!authorId || authorId === '') {
-            setValidation('Books must be written by someone :/');
-            return;
-        }
-
-        const client = createApolloClient();
-
-        const newBook: CreateBookRequest = {
-            name: name,
-            authorId: authorId,
-            pages: pages
-        }
-
-        client.mutate({
-            mutation: gql`
-                    mutation CreateBookMutation($createBookRequest: CreateBookRequest) {
-                        createBook(createBookRequest: $createBookRequest) {
-                            id
-                        }
-                    }
-                `,
+    const createBook = (book: CreateBookRequest) => {
+        createBookMutation({
             variables: {
-                createBookRequest: {
-                    ...newBook
-                }
+                createBookRequest: book
             }
-        }).then(() => {
-            router.push('/books');
-        }).catch((err) => {
-            console.log(err);
         })
+            .then(() => router.push("/books"))
+            .catch((error) => console.log(error));
     }
 
     return (
         <div>
-            <h1>New Book</h1>
+            <h1 className="text-2xl text-center mb-5">Book registration</h1>
 
-            <form onSubmit={createBook}>
-                <div className="mt-2">
+            <form className="flex flex-col bg-zinc-900 p-5 rounded-md" onSubmit={handleSubmit(createBook)}>
+                <div>
                     <label className="block" htmlFor="name">Name</label>
-                    <input className="p-2 rounded-sm text-black" placeholder="Name" type="text" name="name" onChange={(event) => setName(event.target.value)} />
+                    <input {...register("name", { required: true })} className="p-2 rounded-sm text-black w-full" placeholder="Name" type="text" name="name" />
+                    <FormValidationMessage message={errors.name ? 'Book name is required.' : undefined}></FormValidationMessage>
                 </div>
-                <div className="mt-2">
+                <div className="mt-5">
                     <label className="block" htmlFor="pages">Pages</label>
-                    <input className="p-2 rounded-sm text-black" placeholder="Pages" type="number" min={1} name="pages" onChange={(event) => setPages(Number(event.target.value))} />
+                    <input {...register("pages", { required: true, min: 1, valueAsNumber: true })} className="p-2 rounded-sm text-black w-full" placeholder="Pages" type="number" name="pages" />
+                    <FormValidationMessage message={errors.pages ? 'Book must have at least one page.' : undefined}></FormValidationMessage>
                 </div>
-                <div className="mt-2">
+                <div className="my-5">
                     <label className="block" htmlFor="authors">Author</label>
-                    <select className="p-2 border-none rounded-sm text-black" name="authors" onChange={(event) => setAuthorId(event.target.value)}>
-                        {authors.map(author => <option key={author.id} value={author.id}>{author.firstName}</option>)}
+                    <select {...register("authorId", { required: true })} className="p-2 border-none rounded-sm text-black w-full" name="authors">
+                        {data?.allAuthors.map(author => <option key={author.id} value={author.id}>{author.firstName}</option>)}
                     </select>
+                    <FormValidationMessage message={errors.authorId ? 'A book must be written by someone :/' : undefined}></FormValidationMessage>
                 </div>
 
-                {!!validation ? <div className="mt-4 bg-white rounded-sm animate-pulse p-2 text-red-600"><p>Error: {validation}</p></div> : null}
-
-                <button className="mt-5" type="submit">Create</button>
+                <button className="self-center border-2 border-solid border-green-500 p-2 rounded-md w-full hover:bg-green-500 hover:text-white transition-colors duration-300" type="submit">Create book</button>
+                <Link href="/books">
+                    <small className="block mt-6">Go back to book list</small>
+                </Link>
             </form>
-            <Link href="/books">
-                 <button className="mt-3">Go back to book list</button>
-            </Link>
+
         </div>
     )
 
